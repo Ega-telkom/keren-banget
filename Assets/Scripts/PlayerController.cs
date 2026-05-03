@@ -165,8 +165,8 @@ public class PlayerController : MonoBehaviour
         if (impact < 5f) return;
 
         // Scale shake based on impact
-        float duration = Mathf.Clamp(impact * 0.02f, 0.05f, 0.3f);
-        float magnitude = Mathf.Clamp(impact * 0.05f, 0.1f, 1.0f);
+        float duration = Mathf.Clamp(impact * 0.01f, 0.01f, 0.01f);
+        float magnitude = Mathf.Clamp(impact * 0.01f, 0.01f, 0.01f);
 
         CameraShake.instance?.Shake(duration, magnitude, landingImpact);
     }
