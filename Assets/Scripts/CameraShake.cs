@@ -1,57 +1,81 @@
 ﻿using UnityEngine;
+using System.Collections;
+
+using UnityEngine;
+
+[System.Serializable]
+public class ShakeData
+{
+    public string label;
+    
+    [Header("Movement")]
+    public Vector3 posDirection = Vector3.up;
+    public float magnitude = 0.3f;
+    public float duration = 0.2f;
+
+    [Header("Custom Easing")]
+    // Sumbu X kurva adalah waktu (0 ke 1), Sumbu Y adalah intensitas (0 ke 1)
+    public AnimationCurve intensityCurve = AnimationCurve.Linear(0, 1, 1, 0); 
+    
+    [Tooltip("Jika true, arah akan sedikit acak agar tidak kaku")]
+    public bool useRandomness = true;
+}
 
 public class CameraShake : MonoBehaviour
 {
-    public static CameraShake instance;
+    public static CameraShake Instance;
+    public Vector3 PositionOffset { get; private set; }
 
-    [Header("Shake Settings")]
-    public AnimationCurve shakeCurve = AnimationCurve.EaseInOut(0, 0, 1, 0);
+    private Coroutine currentShake;
 
-    void Awake()
+    void Awake() => Instance = this;
+
+    public void Shake(ShakeData data, Transform source = null)
     {
-        instance = this;
+        if (currentShake != null) StopCoroutine(currentShake);
+        currentShake = StartCoroutine(DoShake(data, source));
     }
 
-    public void Shake(float duration, float magnitude, AnimationCurve curve = null)
+    IEnumerator DoShake(ShakeData data, Transform source)
     {
-        StartCoroutine(ShakeCoroutine(duration, magnitude, curve ?? shakeCurve));
-    }
-
-    System.Collections.IEnumerator ShakeCoroutine(float duration, float magnitude, AnimationCurve curve)
-    {
-        Vector3 originalPos = transform.localPosition;
-        Vector3 originalRot = transform.localEulerAngles;
-
         float elapsed = 0f;
 
-        while (elapsed < duration)
+        // Tentukan arah dasar
+        Vector3 baseDir = data.posDirection;
+        if (source != null)
         {
-            float normalizedTime = elapsed / duration;
+            // Balik arah X jika player menghadap kiri (lossyScale.x negatif)
+            baseDir = source.TransformDirection(data.posDirection) * Mathf.Sign(source.lossyScale.x);
+        }
 
-            float curveValue = curve.Evaluate(normalizedTime);
-            float currentMagnitude = magnitude * curveValue;
+        while (elapsed < data.duration)
+        {
+            float t = elapsed / data.duration;
+            float intensity = data.intensityCurve.Evaluate(t);
 
-            float x = Random.Range(-1f, 1f) * currentMagnitude;
-            float y = Random.Range(-1f, 1f) * currentMagnitude;
-            float rot = Random.Range(-1f, 1f) * currentMagnitude;
+            // Tambahkan sedikit variasi random jika diaktifkan
+            Vector3 noise = data.useRandomness ? 
+                new Vector3(Random.Range(-0.2f, 0.2f), Random.Range(-0.2f, 0.2f), 0) : Vector3.zero;
 
-            transform.localPosition = new Vector3(
-                originalPos.x + x,
-                originalPos.y + y,
-                originalPos.z
-            );
-
-            transform.localEulerAngles = new Vector3(
-                originalRot.x,
-                originalRot.y,
-                originalRot.z + rot // (also fixed your rotation bug here 👀)
-            );
+            PositionOffset = (baseDir.normalized + noise) * (intensity * data.magnitude);
 
             elapsed += Time.deltaTime;
             yield return null;
         }
 
-        transform.localPosition = originalPos;
-        transform.localEulerAngles = originalRot;
+        // Smoothly reset ke nol (bukan snap instan)
+        float resetElapsed = 0f;
+        float resetDuration = 0.05f;
+        Vector3 startPos = PositionOffset;
+
+        while (resetElapsed < resetDuration)
+        {
+            resetElapsed += Time.deltaTime;
+            PositionOffset = Vector3.Lerp(startPos, Vector3.zero, resetElapsed / resetDuration);
+            yield return null;
+        }
+
+        PositionOffset = Vector3.zero;
+        currentShake = null;
     }
-}
+}  

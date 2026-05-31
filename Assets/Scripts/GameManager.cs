@@ -1,26 +1,56 @@
 using UnityEngine;
-using TMPro; // atau using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 
 public class GameManager : MonoBehaviour
 {
     public static GameManager instance;
 
+    [Header("Input")]
+    public InputReader inputReader;
+    public InputModeManager inputModeManager;
+
+    [Header("Game Data")]
     public int coinCount = 0;
-    public TextMeshProUGUI coinText; // atau public Text orbText;
 
     void Awake()
     {
+        if (instance != null)
+        {
+            Destroy(gameObject); // destroy yang BARU, bukan yang lama
+            return;
+        }
         instance = this;
+        DontDestroyOnLoad(gameObject);
     }
 
-    public void AddCoin()
+    void OnEnable()
     {
-        coinCount++;
-        UpdateUI();
+        SceneManager.sceneLoaded += OnSceneLoaded;
     }
 
-    void UpdateUI()
+    void OnDisable()
     {
-        coinText.text = "" + coinCount;
+        SceneManager.sceneLoaded -= OnSceneLoaded;
     }
+
+    void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        if (scene.name == "MainMenu")
+            inputModeManager.SetUI();
+        else
+            inputModeManager.SetGameplay();
+    }
+
+    // ===== COINS =====
+    public void AddCoin() => coinCount++;
+    public void ResetCoins() => coinCount = 0;
+
+    // ===== SCENE MANAGEMENT =====
+    public void LoadScene(string sceneName)
+    {
+        ResetCoins();
+        SceneManager.LoadScene(sceneName);
+    }
+    public void LoadMainMenu() => SceneManager.LoadScene("MainMenu");
+    public void QuitGame() => Application.Quit();
 }
