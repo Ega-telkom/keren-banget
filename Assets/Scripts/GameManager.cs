@@ -14,11 +14,12 @@ public class GameManager : MonoBehaviour
 
     void Awake()
     {
-        if (instance != null)
+        if (instance != null && instance != this)
         {
-            Destroy(gameObject); // destroy yang BARU, bukan yang lama
+            Destroy(gameObject);
             return;
         }
+
         instance = this;
         DontDestroyOnLoad(gameObject);
     }

@@ -6,18 +6,17 @@ public class Knockback : MonoBehaviour
     public float knockbackDuration = 0.2f;
 
     Rigidbody2D rb;
-    bool isKnockedBack;
+    public bool isKnockedBack;
 
     void Awake() => rb = GetComponent<Rigidbody2D>();
 
-    public void Apply(Vector2 sourcePosition)
+    // SEKARANG MENERIMA ARAH (dir) LANGSUNG DARI LUAR
+    public void Apply(Vector2 dir)
     {
         if (isKnockedBack) return;
-        Vector2 dir = new Vector2(
-            Mathf.Sign((transform.position - (Vector3)sourcePosition).x),
-            0.5f
-        ).normalized;
-        StartCoroutine(DoKnockback(dir));
+
+        // Langsung jalankan coroutine menggunakan arah murni yang dikirim dari luar
+        StartCoroutine(DoKnockback(dir.normalized));
     }
 
     System.Collections.IEnumerator DoKnockback(Vector2 dir)

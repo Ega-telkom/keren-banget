@@ -23,12 +23,21 @@ public class Projectile : MonoBehaviour
 
     void OnTriggerEnter2D(Collider2D other)
     {
-            
         var health = other.GetComponent<Health>();
         if (health == null) return;
 
         health.TakeDamage(damage);
-        other.GetComponent<Knockback>()?.Apply(transform.position);
+    
+        var knockback = other.GetComponent<Knockback>();
+        if (knockback != null)
+        {
+            // Hitung arah X saja, Y dipaksa 0 agar Player tidak membal ke atas
+            float pushX = other.transform.position.x > transform.position.x ? 1f : -1f;
+            Vector2 customDir = new Vector2(pushX, 0f); 
+        
+            knockback.Apply(customDir);
+        }
+
         Destroy(gameObject);
     }
 }

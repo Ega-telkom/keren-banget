@@ -6,11 +6,9 @@ public class PlayerController : MonoBehaviour
 {
     // ================= SETTINGS =================
 
-    [Header("Movement")] 
-    public float jumpForce = 8f;
-    public float walkSpeed = 4f;
-    public float sprintSpeed = 12f; // Kecepatan saat lari
-    public float sprintCostPerSecond = 16f; // Biaya stamina per detik
+    [Header("Movement (Hollow Knight Style)")]
+    public float moveSpeed = 12f; // Kecepatan konstan, responsif, instan
+    public float jumpForce = 12f; // Kekuatan lompatan
 
     [Header("Ground Check")]
     public Transform groundCheck;
@@ -25,7 +23,7 @@ public class PlayerController : MonoBehaviour
     [SerializeField] float pixelsPerUnit = 16f;
 
     [Header("Dash")]
-    public float dashCost = 20f; // Tambahkan cost dash
+    public float dashCost = 20f; 
     public float dashSpeed = 15f;
     public float dashDuration = 0.2f;
     public float dashCooldown = 0.5f;
@@ -52,19 +50,25 @@ public class PlayerController : MonoBehaviour
     public ShakeData dashshake;
     public ShakeData shootshake;
     public ShakeData equipshake;
+    public ShakeData damageShake;
+    public ShakeData deathShake;
+    
+    [Header("Particle")]
+    public ParticleSystem bloodParticlePrefab;
+    
+    [Header("UI Reference")]
+    public DeathScreen deathScreenComponent;
     
     // ================= STATE =================
 
     Rigidbody2D rb;
     Animator animator;
     Health health;
+    public bool IsDead { get; private set; } = false;
     private Stamina stamina;
-    private InputAction sprintAction;
-    private bool isSprinting;
-    bool sprintInputPressed;
-    private float lerpedSpeed;
-    private float airMomentum;
-    private float currentAirSpeed;
+    int comboIndex = 0; // Menyimpan status pukulan ke berapa (0, 1, 2)
+    float comboResetTimer; // Timer untuk reset combo jika player telat pencet
+    public float comboResetWindow = 0.8f; // Batas waktu toleransi antar pukulan
 
     Vector2 moveInput;
     float lastDirection = 1f;
@@ -86,29 +90,56 @@ public class PlayerController : MonoBehaviour
 
     // ================= LIFECYCLE =================
 
+// Cari fungsi Awake() kamu, ubah menjadi seperti ini:
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
         animator = GetComponentInChildren<Animator>();
         health = GetComponent<Health>();
+        
+        // DAFTARKAN EVENT DAMAGE DAN DEATH DI SINI
+        health.OnDamageTaken += OnPlayerDamaged; // Pastikan script Health kamu punya event ini
         health.OnDeath += OnPlayerDeath;
         stamina = GetComponent<Stamina>();
     }
 
-    void OnEnable() { if (inputReader != null) Subscribe(); }
+    void OnEnable() 
+    { 
+        // Jika inputReader belum diisi via Inspector, coba cari secara global dari GameManager
+        if (inputReader == null && GameManager.instance != null)
+        {
+            inputReader = GameManager.instance.inputReader;
+        }
+
+        // Hanya lakukan subscribe jika inputReader sudah benar-benar tervalidasi
+        if (inputReader != null) 
+        {
+            Subscribe(); 
+        }
+    }
     void OnDisable() { if (inputReader != null) Unsubscribe(); }
 
     public void Initialize(InputReader reader)
     {
+        // Jika sebelumnya sudah punya inputReader, putuskan hubungan dulu agar tidak double-binding
+        if (inputReader != null)
+        {
+            Unsubscribe();
+        }
+
         inputReader = reader;
-        Subscribe();
+        
+        // Daftarkan ulang ke InputReader yang segar dari LevelManager
+        if (inputReader != null)
+        {
+            Subscribe();
+            Debug.Log("<color=magenta>[PLAYER] Inisialisasi Berhasil! Sukses menjabat tangan InputReader dari LevelManager.</color>");
+        }
     }
 
     void Subscribe()
     {
         inputReader.OnMove += HandleMove;
-        inputReader.OnSprintPerformed += HandleSprint_Input;
-        inputReader.OnSprintCanceled += HandleSprint_Canceled;
         inputReader.OnJumpPerformed += HandleJump_Input;
         inputReader.OnDashPerformed += HandleDash_Input;
         inputReader.OnAttackPerformed += HandleAttack_Input;
@@ -118,8 +149,6 @@ public class PlayerController : MonoBehaviour
     void Unsubscribe()
     {
         inputReader.OnMove -= HandleMove;
-        inputReader.OnSprintPerformed -= HandleSprint_Input;
-        inputReader.OnSprintCanceled -= HandleSprint_Canceled;
         inputReader.OnJumpPerformed -= HandleJump_Input;
         inputReader.OnDashPerformed -= HandleDash_Input;
         inputReader.OnAttackPerformed -= HandleAttack_Input;
@@ -130,30 +159,25 @@ public class PlayerController : MonoBehaviour
 
     void HandleMove(Vector2 input)
     {
-        moveInput = new Vector2(
-            input.x > 0.1f ? 1 : (input.x < -0.1f ? -1 : 0),
-            input.y > 0.1f ? 1 : (input.y < -0.1f ? -1 : 0)
-        ).normalized;
-    }
-    
-    void HandleSprint_Input() 
-    {
-        sprintInputPressed = true;
-    }
+        Debug.Log($"[PLAYER CONTROL] Menerima input gerak dari keyboard/gamepad: {input}");
+        // Sistem Snap/Digital: Begitu stik digeser melewati 0.1f, 
+        // langsung DIKUNCI ke angka 1 atau -1 murni. 
+        // Ini mengabaikan semua angka desimal halus dari analog.
+        float targetX = input.x > 0.1f ? 1f : (input.x < -0.1f ? -1f : 0f);
+        float targetY = input.y > 0.1f ? 1f : (input.y < -0.1f ? -1f : 0f);
 
-    void HandleSprint_Canceled() 
-    {
-        sprintInputPressed = false;
+        // Simpan sebagai nilai murni tanpa di-normalized secara vektor,
+        // agar input serong (diagonal) tidak memotong kecepatan horizontal (X) kamu!
+        moveInput = new Vector2(targetX, targetY);
     }
 
     void HandleJump_Input() => jumpBufferTimer = jumpBufferTime;
 
     void HandleDash_Input()
     {
-        // Tambahkan syarat stamina.HasEnough
         if (dashCooldownTimer <= 0f && !IsBusy() && stamina.HasEnough(dashCost))
         {
-            stamina.Drain(dashCost); // Drain stamina saat dash
+            stamina.Drain(dashCost); 
             StartCoroutine(Dash());
         }
     }
@@ -175,8 +199,7 @@ public class PlayerController : MonoBehaviour
         DetectLanding();
         wasGrounded = isGrounded;
 
-        HandleSprint();
-        UpdateStaminaStatus(); // Tambahkan ini
+        UpdateStaminaStatus(); 
         CheckGround();
         UpdateTimers();
         HandleFacing();
@@ -184,31 +207,23 @@ public class PlayerController : MonoBehaviour
         HandleAttack();
         HandleShoot();
         UpdateAnimator();
+        // TAMBAHKAN INI: Reset combo jika player diam terlalu lama setelah memukul
+        if (comboIndex > 0)
+        {
+            comboResetTimer -= Time.deltaTime;
+            if (comboResetTimer <= 0f && !isAttacking)
+            {
+                comboIndex = 0; // Kembali ke pukulan pertama
+            }
+        }
     }
 
     void FixedUpdate()
     {
         if (!IsBusy())
         {
-            if (isGrounded)
-            {
-                // DI TANAH: Tentukan kecepatan berdasarkan status sprint
-                currentAirSpeed = isSprinting ? sprintSpeed : walkSpeed;
-            }
-            else
-            {
-                // DI UDARA: Fades out kecepatan sprint menuju walkSpeed
-                // 2f adalah kekuatan memudarnya, makin besar makin cepat balik ke walkSpeed
-                if (currentAirSpeed > walkSpeed)
-                {
-                    currentAirSpeed -= 2f * Time.fixedDeltaTime; 
-                }
-                // Pastikan tidak lebih rendah dari walkSpeed
-                currentAirSpeed = Mathf.Max(currentAirSpeed, walkSpeed);
-            }
-
-            // EKSEKUSI: Tetap Snap Tap arah (moveInput.x) tapi gunakan kecepatan yang memudar tadi
-            rb.linearVelocity = new Vector2(moveInput.x * currentAirSpeed, rb.linearVelocity.y);
+            // GERAKAN HOLLOW KNIGHT: 100% Instan, Snappy, Tanpa Kuncian Kode
+            rb.linearVelocity = new Vector2(moveInput.x * moveSpeed, rb.linearVelocity.y);
         }
     }
 
@@ -225,9 +240,6 @@ public class PlayerController : MonoBehaviour
     void UpdateStaminaStatus()
     {
         if (stamina == null) return;
-
-        // Player dianggap bergerak jika ada input horizontal 
-        // dan tidak sedang dalam keadaan 'Busy' (Dashing/Attacking)
         stamina.IsMoving = Mathf.Abs(moveInput.x) > 0.01f;
     }
 
@@ -242,60 +254,59 @@ public class PlayerController : MonoBehaviour
         if (!wasGrounded && isGrounded)
             HandleLanding();
     }
-    
-    void HandleSprint()
-    {
-        // Syarat Sprint: Tombol ditekan, sedang bergerak x, di tanah, dan tidak sibuk
-        if (sprintInputPressed && Mathf.Abs(moveInput.x) > 0.01f && isGrounded && !IsBusy())
-        {
-            float costThisFrame = sprintCostPerSecond * Time.deltaTime;
-
-            if (stamina.HasEnough(costThisFrame))
-            {
-                stamina.Drain(costThisFrame);
-                isSprinting = true;
-                return;
-            }
-        }
-    
-        isSprinting = false;
-    }
 
     void HandleJump()
     {
         if (jumpBufferTimer > 0 && coyoteTimer > 0 && !isAttacking)
         {
             animator.SetTrigger("Jump");
-            // Ambil kecepatan horizontal saat ini (bisa walkSpeed atau sprintSpeed)
-            float currentHorizontalSpeed = isSprinting ? sprintSpeed : walkSpeed;
-            airMomentum = moveInput.x * currentHorizontalSpeed;
 
             jumpBufferTimer = 0;
             coyoteTimer = 0;
         
-            // Berikan dorongan vertikal + tetap pertahankan kecepatan horizontal saat itu
-            rb.linearVelocity = new Vector2(airMomentum, jumpForce);
+            // Dorongan vertikal instan, arah udara bisa langsung dikontrol di frame berikutnya
+            rb.linearVelocity = new Vector2(moveInput.x * moveSpeed, jumpForce);
         }
     }
 
     void HandleAttack()
     {
+        // Masih mempertahankan fungsi buffer dan cek stamina bawaan kodemu
         if (attackBufferTimer > 0 && isGrounded && !isAttacking && attackCooldownTimer <= 0f)
         {
-            // Kita cek stamina di sini sebelum masuk ke TryAttack
             if (stamina.HasEnough(attack1Cost))
             {
                 attackBufferTimer = 0;
                 attackCooldownTimer = attackCooldown;
-                StartAttack(); // Panggil langsung StartAttack
-            }
-            else 
-            {
-                // Jika stamina tidak cukup, kita bisa reset buffer agar tidak "ngelag"
-                // atau biarkan saja agar player bisa attack tepat saat stamina cukup
-                Debug.Log("Stamina tidak cukup untuk menyerang!");
+                
+                // SISTEM COMBO: Naikkan indeks setiap pencet, maksimal 3 pukulan
+                comboIndex++;
+                if (comboIndex > 3) comboIndex = 1;
+
+                StartAttack(); 
             }
         }
+    }
+
+    void StartAttack()
+    {
+        stamina.Drain(attack1Cost);
+        isAttacking = true;
+
+        // Kirim data combo ke Animator
+        animator.SetInteger("ComboCount", comboIndex);
+        animator.SetTrigger("Attack"); // Trigger "Attack" yang ada di kodemu
+
+        // Berikan waktu toleransi baru untuk pukulan berikutnya
+        comboResetTimer = comboResetWindow;
+
+        rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
+
+        // Pilih guncangan kamera berdasarkan pukulan ke berapa
+        ShakeData currentShake = comboIndex == 1 ? attack1Shake : (comboIndex == 2 ? attack2Shake : attack3Shake);
+        CameraShake.Instance.Shake(currentShake, visual);
+        
+        StartCoroutine(Rumble(0.2f, 0.6f));
     }
 
     void HandleShoot()
@@ -305,16 +316,6 @@ public class PlayerController : MonoBehaviour
             shootBufferTimer = 0;
             StartCoroutine(Shoot());
         }
-    }
-
-    void StartAttack()
-    {
-        stamina.Drain(attack1Cost);
-        isAttacking = true;
-        animator.SetTrigger("Attack");
-        rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
-        CameraShake.Instance.Shake(attack1Shake, visual);
-        StartCoroutine(Rumble(0.2f, 0.6f));
     }
 
     IEnumerator Shoot()
@@ -366,18 +367,18 @@ public class PlayerController : MonoBehaviour
     public void ShootFinished() => isShooting = false;
 
     // ================= HELPERS =================
+    
+    public int GetComboIndex() => comboIndex;
 
     void CheckGround()
     {
         isGrounded = Physics2D.OverlapCircle(groundCheck.position, groundDistance, groundMask);
         if (isGrounded)
         {
-            // Selama menyentuh tanah, timer selalu penuh
             coyoteTimer = coyoteTime;
         }
         else
         {
-            // Saat mulai jatuh/meninggalkan platform, timer mulai berkurang
             coyoteTimer -= Time.deltaTime;
         }
     }
@@ -394,9 +395,9 @@ public class PlayerController : MonoBehaviour
 
     void HandleFacing()
     {
-        if (isAttacking || isShooting) return; // lock arah saat aksi
+        if (isAttacking || isShooting) return; 
         if (moveInput.x > 0) { visual.localScale = new Vector3(1, 1, 1); lastDirection = 1f; }
-        else if (moveInput.x < 0) { visual.localScale = new Vector3(-1, 1, 1); lastDirection = -1f; }
+        else if (moveInput.x < -0) { visual.localScale = new Vector3(-1, 1, 1); lastDirection = -1f; }
     }
 
     void HandleLanding()
@@ -414,18 +415,84 @@ public class PlayerController : MonoBehaviour
             Gamepad.current.SetMotorSpeeds(0f, 0f);
         }
     }
+    
+    void OnPlayerDamaged(float damageAmount)
+    {
+        Debug.Log("PlayerController: OnPlayerDamaged dipanggil. Damage: " + damageAmount);
 
-    void OnPlayerDeath() => gameObject.SetActive(false);
+        if (CameraShake.Instance != null && damageShake != null)
+        {
+            CameraShake.Instance.Shake(damageShake, visual);
+        }
+        
+        if (animator != null) animator.SetTrigger("Hurt");
+    }
+    
+// Tambahkan kata PUBLIC di depannya
+    public void OnPlayerDeath()
+    {
+        // Pengaman: Jika player sudah mati, jangan eksekusi kode di bawahnya lagi
+        if (IsDead) return; 
+
+        Debug.Log("PlayerController: Player Mati.");
+    
+        IsDead = true; // <-- SET JADI TRUE SAAT MATI
+
+        if (CameraShake.Instance != null && deathShake != null)
+        {
+            CameraShake.Instance.Shake(deathShake, visual);
+        }
+
+        if (inputReader != null) Unsubscribe();
+
+        if (deathScreenComponent != null)
+        {
+            deathScreenComponent.ShowDeathScreen();
+        }
+        else
+        {
+            Debug.LogError("PlayerController ERROR: Slot deathScreenComponent di Inspector masih kosong!");
+        }
+
+        if (visual != null) visual.gameObject.SetActive(false);
+    
+        var col = GetComponent<Collider2D>();
+        if (col != null) col.enabled = false;
+        if (rb != null) rb.simulated = false; 
+    }
 
     void UpdateAnimator()
     {
         if (animator == null) return;
-    
-        // Nilai ini akan menentukan apakah Blend Tree memutar Idle, Walk, atau Run
-        float horizontalSpeed = Mathf.Abs(rb.linearVelocity.x);
-        animator.SetFloat("Speed", horizontalSpeed);
-    
-        // Parameter lainnya tetap perlu dikirim
+
+        float actualSpeed = Mathf.Abs(rb.linearVelocity.x);
+        float visualSpeed = actualSpeed;
+
+        // JIKA PLAYER MENEKAN TOMBOL ARAH
+        if (Mathf.Abs(moveInput.x) > 0.1f)
+        {
+            ContactFilter2D filter = new ContactFilter2D();
+            filter.SetLayerMask(groundMask);
+            filter.useLayerMask = true;
+
+            RaycastHit2D[] hits = new RaycastHit2D[1];
+            // Jika mendeteksi tembok tepat di arah input jalan player
+            if (rb.Cast(new Vector2(moveInput.x, 0f), filter, hits, 0.05f) > 0)
+            {
+                visualSpeed = 0f; // Paksa nilai animasi jadi 0 (Idle)
+            }
+        }
+
+        // LOGIKA ANIMASI AKHIR
+        if (Mathf.Abs(moveInput.x) < 0.1f || visualSpeed < 0.1f)
+        {
+            animator.SetFloat("Speed", 0f); // Putar Idle
+        }
+        else
+        {
+            animator.SetFloat("Speed", moveSpeed); // Putar Run
+        }
+
         animator.SetBool("isGrounded", isGrounded);
         animator.SetFloat("VelocityY", rb.linearVelocity.y);
     }
@@ -440,7 +507,7 @@ public class PlayerController : MonoBehaviour
     );
     
     public AnimationCurve shakeCurve = new AnimationCurve(
-        new Keyframe(0f, 1f, 0f, -2f), // Start di 1, kemiringan awal turun
-        new Keyframe(1f, 0f, 0f, 0f)   // End di 0
+        new Keyframe(0f, 1f, 0f, -2f), 
+        new Keyframe(1f, 0f, 0f, 0f)   
     );
 }

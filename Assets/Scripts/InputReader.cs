@@ -58,12 +58,32 @@ public class InputReader : MonoBehaviour
     {
         _actions.UI.Disable();
         _actions.Player.Enable();
+        // TAMBAHKAN LOG INI:
+        Debug.Log("<color=green>[INPUT TRACKER]</color> Fungsi SetGameplay() dipanggil!");
     }
 
     public void SetUI()
     {
         _actions.Player.Disable();
         _actions.UI.Enable();
-        Debug.Log("UI Set");
+        // TAMBAHKAN LOG INI:
+        Debug.Log("<color=red>[INPUT TRACKER]</color> Fungsi SetUI() dipanggil! Seseorang telah mengunci pergerakan player!");
+    }
+    
+    // Tambahkan fungsi ini di dalam InputReader.cs
+    public void ClearAllSubscribers()
+    {
+        // Mengosongkan event agar semua script lama yang menggantung terhapus dari memori
+        OnMove = null;
+        OnJumpPerformed = null;
+        OnDashPerformed = null;
+        OnAttackPerformed = null;
+        OnShootPerformed = null;
+    
+        // SESUAIKAN: Kosongkan juga event menu/pause kamu di sini
+        OnPausePerformed = null; 
+        OnCancelPerformed = null;
+
+        Debug.Log("InputReader: Seluruh delegasi event berhasil dibersihkan total!");
     }
 }
