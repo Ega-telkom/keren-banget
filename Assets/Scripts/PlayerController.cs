@@ -159,7 +159,6 @@ public class PlayerController : MonoBehaviour
 
     void HandleMove(Vector2 input)
     {
-        Debug.Log($"[PLAYER CONTROL] Menerima input gerak dari keyboard/gamepad: {input}");
         // Sistem Snap/Digital: Begitu stik digeser melewati 0.1f, 
         // langsung DIKUNCI ke angka 1 atau -1 murni. 
         // Ini mengabaikan semua angka desimal halus dari analog.
